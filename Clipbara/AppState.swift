@@ -105,6 +105,7 @@ final class AppState {
     }
 
     func toggleClipQueue() {
+        guard DirectPaste.isAvailable else { return }
         #if APPSTORE
         if !clipQueue.isActive, !Entitlements.shared.checkHistoryAccess() {
             PaywallWindowController.shared.show()
@@ -135,6 +136,7 @@ final class AppState {
     /// Shared paste path for panel and pinboard cards.
     /// - Parameter asPlainText: `nil` resolves from the setting combined with the Shift modifier.
     func paste(_ item: ClipboardItem, asPlainText: Bool? = nil) {
+        let targetApplication = NSWorkspace.shared.frontmostApplication
         // Picking a clip replaces the item the queue lined up, and the next
         // ⌘V would then drop the wrong one from the queue. End it instead.
         clipQueue.stop()
@@ -143,10 +145,28 @@ final class AppState {
         // ⌘V has to reach the app behind the panel, so send it once the
         // panel is off screen and no longer the key window.
         if DirectPaste.isReady {
-            hidePanel(then: { _ = DirectPaste.sendPasteShortcut() })
+            hidePanel(then: { [weak self] in
+                targetApplication?.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+                guard DirectPaste.sendPasteShortcut() else {
+                    self?.showToast(String(localized: "Couldn't paste into the active app."), systemImage: "exclamationmark.triangle.fill")
+                    return
+                }
+            })
+        } else if DirectPaste.isEnabled {
+            // The setting is on but Accessibility was revoked or unavailable.
+            // Keep the useful copy result and surface the failure only.
+            showToast(String(localized: "Copied, but direct paste needs Accessibility permission."), systemImage: "exclamationmark.triangle.fill")
+            hidePanel()
         } else {
             hidePanel()
         }
+    }
+
+    /// Copies a clip without dismissing the panel or simulating a paste.
+    func copy(_ item: ClipboardItem, asPlainText: Bool? = nil) {
+        clipQueue.stop()
+        clipboardMonitor.skipNextChange()
+        pasteService.write(item: item, asPlainText: asPlainText ?? PasteService.resolvePlainText())
     }
 
     // MARK: - Deleting with undo (#45)
@@ -263,9 +283,11 @@ final class AppState {
                 self?.togglePanel()
             }
         }
-        KeyboardShortcuts.onKeyDown(for: .toggleClipQueue) { [weak self] in
-            Task { @MainActor in
-                self?.toggleClipQueue()
+        if DirectPaste.isAvailable {
+            KeyboardShortcuts.onKeyDown(for: .toggleClipQueue) { [weak self] in
+                Task { @MainActor in
+                    self?.toggleClipQueue()
+                }
             }
         }
         KeyboardShortcuts.onKeyDown(for: .clearHistory) { [weak self] in

@@ -96,7 +96,7 @@ struct GeneralSettingsTab: View {
                                 Text("Paste into the Active App")
                                 InfoHoverButton(text: "After the panel closes, Clipbara presses \u{2318}V for you. This needs Accessibility permission, which is used for nothing else.")
                             }
-                            Text("Clicking a clip or pressing Return pastes it where you were typing. When off, the clip is only copied.")
+                            Text("Double-clicking a clip pastes it where you were typing. Single-click only copies the clip.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }
@@ -113,17 +113,18 @@ struct GeneralSettingsTab: View {
 
                     if pasteIntoActiveApp, !hasPastePermission {
                         LabeledContent {
-                            Button("Open Accessibility Settings\u{2026}") {
+                            Button("Check Permission Again") {
                                 DirectPaste.requestPermission()
-                                DirectPaste.openAccessibilitySettings()
+                                hasPastePermission = DirectPaste.hasPermission
+                                if !hasPastePermission {
+                                    DirectPaste.openAccessibilitySettings()
+                                }
                             }
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Label("Accessibility permission is off, so clips are only copied.", systemImage: "exclamationmark.triangle.fill")
                                     .foregroundStyle(.orange)
-                                // App Store builds are sandboxed, and macOS neither prompts
-                                // for nor lists a sandboxed app, so the user adds it.
-                                Text("If Clipbara isn't in the list, add it with the + button.")
+                                Text("In System Settings, remove old Clipbara entries and add the currently running app again.")
                                     .font(.system(size: 11))
                                     .foregroundStyle(.secondary)
                             }
@@ -134,6 +135,9 @@ struct GeneralSettingsTab: View {
             .onReceive(permissionTimer) { _ in
                 let current = DirectPaste.hasPermission
                 if current != hasPastePermission { hasPastePermission = current }
+            }
+            .onAppear {
+                hasPastePermission = DirectPaste.hasPermission
             }
 
             #if APPSTORE

@@ -44,7 +44,10 @@ struct ClipboardCardView: View {
                 appState.hoveredClipID = nil
             }
         }
-        .onTapGesture(perform: handleTap)
+        // A single click copies; a double click uses the existing paste path,
+        // which may also send ⌘V when direct paste is enabled.
+        .onTapGesture(count: 2, perform: handleDoubleTap)
+        .onTapGesture(count: 1, perform: handleTap)
         .optionalDrag(enabled: enableDrag) {
             appState.draggedClipboardItemID = item.id
             appState.draggedPinboardEntry = nil
@@ -176,6 +179,11 @@ struct ClipboardCardView: View {
     }
 
     private func handleTap() {
+        onSelect(item)
+        appState.copy(item)
+    }
+
+    private func handleDoubleTap() {
         onSelect(item)
         onPaste(item)
     }
