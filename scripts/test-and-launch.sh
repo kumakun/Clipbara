@@ -40,9 +40,20 @@ xcodebuild \
   -derivedDataPath "$OUTPUT/DerivedData" \
   build
 
-echo "==> Quitting the running app and launching the new build..."
 APP="$OUTPUT/DerivedData/Build/Products/Debug/Clipbara.app"
 test -d "$APP"
+# A sandboxed build reads a different, potentially empty history database.
+# Check the signed app before replacing the user's running DMG build.
+echo "==> Checking that the app uses the DMG data location..."
+codesign -d --entitlements :- "$APP" > "$RUN/entitlements.plist" 2> "$RUN/codesign.log"
+SANDBOX_ENABLED=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$RUN/entitlements.plist" 2>/dev/null || true)
+if [ "$SANDBOX_ENABLED" = "true" ]; then
+  echo "    FATAL: Clipbara is sandboxed and would open a separate history database."
+  echo "    Build the Clipbara target with Clipbara-Distribution.entitlements and ENABLE_APP_SANDBOX=NO."
+  exit 1
+fi
+
+echo "==> Quitting the running app and launching the new build..."
 pkill -f 'Clipbara.app/Contents/MacOS/Clipbara' || true
 sleep 2
 if pgrep -f 'Clipbara.app/Contents/MacOS/Clipbara' >/dev/null; then

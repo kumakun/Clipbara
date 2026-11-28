@@ -151,6 +151,10 @@ final class AppState {
                     self?.showToast(String(localized: "Couldn't paste into the active app."), systemImage: "exclamationmark.triangle.fill")
                     return
                 }
+                // Reusing a clip makes it the most recent history item.
+                item.copiedAt = Date()
+                try? item.modelContext?.save()
+                self?.clipboardMonitor.refreshLatestItems()
             })
         } else if DirectPaste.isEnabled {
             // The setting is on but Accessibility was revoked or unavailable.

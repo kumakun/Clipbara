@@ -39,7 +39,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.minsang.PasteClip
         PRODUCT_NAME: Clipbara
         INFOPLIST_FILE: Clipbara/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Clipbara/Clipbara.entitlements
+        # Match the shipped DMG app's data location, including local Debug runs.
+        CODE_SIGN_ENTITLEMENTS: Clipbara/Clipbara-Distribution.entitlements
+        ENABLE_APP_SANDBOX: "NO"
         GENERATE_INFOPLIST_FILE: false
         ENABLE_HARDENED_RUNTIME: "YES"
         SWIFT_STRICT_CONCURRENCY: complete
@@ -47,13 +49,6 @@ targets:
       - package: KeyboardShortcuts
       - package: Sparkle
         product: Sparkle
-    entitlements:
-      path: Clipbara/Clipbara.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.files.user-selected.read-write: true
-        com.apple.security.network.client: true
-
   # Mac App Store distribution (sandboxed, no Sparkle)
   ClipbaraMAS:
     type: application

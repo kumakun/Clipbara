@@ -2,6 +2,7 @@
 
 ## 빌드 & 실행
 
+- The `Clipbara` DMG target, including Debug, must remain unsandboxed: use `Clipbara-Distribution.entitlements` and `ENABLE_APP_SANDBOX=NO`. Its existing history is in `~/Library/Application Support/com.minsang.PasteClip`. Enabling the sandbox opens a separate container database and makes history appear lost. Only `ClipbaraMAS` uses the sandbox. Before relaunching, verify the signed app's entitlements; use `bash scripts/test-and-launch.sh`, which checks this automatically.
 - xcodegen 사용: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodegen generate`
 - 빌드: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Clipbara.xcodeproj -scheme Clipbara -configuration Debug build`
 - **빌드 성공 후 항상 기존 앱 종료 → 재실행까지 자동으로 수행할 것:**
