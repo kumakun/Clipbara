@@ -13,10 +13,15 @@ final class CheckForUpdatesViewModel: ObservableObject {
 
     init() {
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: false,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
+
+        // Apply the manual-only policy before starting, including for existing installs.
+        updaterController.updater.automaticallyChecksForUpdates = false
+        updaterController.updater.automaticallyDownloadsUpdates = false
+        updaterController.startUpdater()
 
         observation = updaterController.updater.observe(
             \.canCheckForUpdates,
