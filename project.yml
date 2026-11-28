@@ -17,7 +17,7 @@ settings:
 packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
-    from: "2.2.0"
+    from: "3.1.0"
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.7.0"
@@ -214,12 +214,16 @@ targets:
       - path: Clipbara/Utilities/PanelTabShortcut.swift
       - path: Clipbara/Utilities/WheelScrollTranslation.swift
       - path: Clipbara/Utilities/ReviewPromptPolicy.swift
+      - path: Clipbara/Utilities/IPhoneAppNotice.swift
       - path: Shared/Store/AccessPolicy.swift
       - path: Clipbara/Panel/PanelContentContainer.swift
+      - path: Clipbara/Utilities/PanelLayoutSettings.swift
       - path: Clipbara/Utilities/PasteKeyCode.swift
       - path: Clipbara/Utilities/ClipQueueList.swift
+      - path: Clipbara/Utilities/HistoryRetention.swift
       - path: Clipbara/Services/ClipQueuePasteboard.swift
       - path: Clipbara/Utilities/URLCommand.swift
+      - path: Clipbara/Utilities/RepeatedPressFilter.swift
       - path: Clipbara/Services/ClipUndoStack.swift
       - path: Shared/Models/ClipboardItem.swift
       - path: Shared/Models/Pinboard.swift

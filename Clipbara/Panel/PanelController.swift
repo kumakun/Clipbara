@@ -10,11 +10,6 @@ final class PanelController {
     /// window itself never has to travel off screen to animate.
     private var contentHost: NSView?
     private var contentContainer: PanelContentContainer?
-    /// Where the running resize animation is heading. `panel.frame` still
-    /// reports the old size until the animation ends, so comparing against it
-    /// let a quick tab switch back be skipped and the panel settle at the
-    /// width of the tab the user had already left.
-    private var resizeTargetFrame: NSRect?
     /// The screen the panel was opened on. `panel.screen` is unreliable while
     /// the panel sits flush against a screen edge next to another display.
     private var presentedScreen: NSScreen?
@@ -22,6 +17,15 @@ final class PanelController {
     private var quickLookItem: ClipboardItem?
     private var quickLookZoom: ImageZoomController?
     private(set) var isVisible: Bool = false
+    /// True while the panel slides away. `isVisible` stays true until the slide
+    /// ends, so a hotkey press in that window used to be read as a second close
+    /// and did nothing; it now reopens the panel once the slide ends.
+    private(set) var isHiding = false
+    private var reopenAfterHiding: (@MainActor () -> Void)?
+    private var hideCompletions: [@MainActor @Sendable () -> Void] = []
+    /// Menus open right now, such as the … menu and card and tab context menus.
+    private let trackingMenus = NSHashTable<NSMenu>.weakObjects()
+    private var menuObservers: [NSObjectProtocol] = []
     private var clickMonitor: Any?
     private var mouseMonitor: Any?
     private var scrollMonitor: Any?
@@ -47,7 +51,6 @@ final class PanelController {
         return setting && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    private let baseHeight: CGFloat = 280
     private let minimumPanelWidth: CGFloat = 720
     private let maximumScreenWidthRatio: CGFloat = 0.90
     private let estimatedCardWidth: CGFloat = 228
@@ -65,22 +68,31 @@ final class PanelController {
         screens.first { NSMouseInRect(point, $0.frame, false) }
     }
 
-    /// The display the user is actually working on.
-    ///
-    /// `NSScreen.main` resolves to the screen owning the key window, not the
-    /// screen the user is looking at. Clipbara is a menu bar app and is never
-    /// the active app when the hotkey fires, so `NSScreen.main` can point at
-    /// whichever display last held focus and the panel slides in on the wrong
-    /// screen. The pointer location matches the user's intent, so prefer it and
-    /// fall back to `NSScreen.main` only when the pointer is off screen.
-    private var activeScreen: NSScreen {
-        Self.screen(containing: NSEvent.mouseLocation, in: NSScreen.screens)
-            ?? NSScreen.main
-            ?? NSScreen.screens.first!
+    /// Resolves the display on each presentation, falling back to the pointer when no window is available.
+    private var activeScreen: NSScreen? {
+        // The first screen is the primary display, even when another display has keyboard focus.
+        let screens = NSScreen.screens
+        switch PanelScreen.current {
+        case .main: return screens.first
+        case .activeWindow:
+            if let screen = PanelScreen.frontWindowScreen(in: screens) { return screen }
+        case .pointer: break
+        }
+        return Self.screen(containing: NSEvent.mouseLocation, in: screens) ?? NSScreen.main ?? screens.first
     }
 
     func toggle(modelContainer: ModelContainer, appState: AppState) {
-        if isVisible {
+        if isHiding {
+            // Pressed again while the panel slides away: open it once the slide
+            // ends. A further press in the same slide takes that back.
+            if reopenAfterHiding == nil {
+                reopenAfterHiding = { [weak self] in
+                    self?.showPanel(modelContainer: modelContainer, appState: appState)
+                }
+            } else {
+                reopenAfterHiding = nil
+            }
+        } else if isVisible {
             hidePanel()
         } else {
             showPanel(modelContainer: modelContainer, appState: appState)
@@ -96,8 +108,8 @@ final class PanelController {
         // Build the warm panel at its real on screen position. Parking it below
         // the screen would hand it to a display stacked underneath before the
         // first hotkey press ever happens. It stays invisible via `alphaValue`.
-        let screenFrame = activeScreen.visibleFrame
-        let frame = panelFrame(in: screenFrame, itemCount: 0, y: screenFrame.origin.y)
+        guard let screenFrame = activeScreen?.visibleFrame else { return }
+        let frame = panelFrame(in: screenFrame, y: screenFrame.origin.y)
 
         let warm = ClipbaraPanel(contentRect: frame)
         warm.alphaValue = 0
@@ -111,18 +123,17 @@ final class PanelController {
     }
 
     func showPanel(modelContainer: ModelContainer, appState: AppState) {
+        guard !isVisible, let screen = activeScreen else { return }
         #if APPSTORE
         ClipSync.shared.syncOnOpen()
         ClipSync.shared.startLivePolling()
         #endif
-        guard !isVisible else { return }
+        observeMenuTracking()
         anchorKeyboard()
         self.appState = appState
 
-        let screen = activeScreen
         let screenFrame = screen.visibleFrame
-        let itemCount = visibleItemCount(modelContainer: modelContainer, selectedTab: appState.selectedTab)
-        let endFrame = panelFrame(in: screenFrame, itemCount: itemCount, y: screenFrame.origin.y)
+        let endFrame = panelFrame(in: screenFrame, y: screenFrame.origin.y)
         presentedScreen = screen
 
         if panel == nil {
@@ -135,7 +146,6 @@ final class PanelController {
         } else {
             panel?.setFrame(endFrame, display: false)
         }
-        resizeTargetFrame = nil
         refitContent()
 
         // The panel frame stays put; the content starts one panel height below
@@ -196,42 +206,6 @@ final class PanelController {
         }
     }
 
-    func resizeToContentItemCount(_ itemCount: Int, animated: Bool = true) {
-        guard isVisible, let panel else { return }
-
-        let screen = presentedScreen ?? panel.screen ?? activeScreen
-        let screenFrame = screen.visibleFrame
-        let targetFrame = panelFrame(in: screenFrame, itemCount: itemCount, y: panel.frame.origin.y)
-
-        let currentTarget = resizeTargetFrame ?? panel.frame
-        guard abs(currentTarget.width - targetFrame.width) > 1 ||
-              abs(currentTarget.origin.x - targetFrame.origin.x) > 1 else {
-            return
-        }
-
-        if animated, Self.animatesPanel {
-            resizeTargetFrame = targetFrame
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(targetFrame, display: true)
-            }, completionHandler: { [weak self] in
-                Task { @MainActor in
-                    guard let self else { return }
-                    // A newer resize may have started; only clear our own target.
-                    if self.resizeTargetFrame == targetFrame {
-                        self.resizeTargetFrame = nil
-                        self.refitContent()
-                    }
-                }
-            })
-        } else {
-            resizeTargetFrame = nil
-            panel.setFrame(targetFrame, display: true)
-            refitContent()
-        }
-    }
-
     /// Sizes the content to the panel from the window's own frame, not from
     /// whatever size the container ended up with. A report on macOS 26.7 (#38)
     /// showed a correctly sized, centered panel whose content was narrower
@@ -246,6 +220,16 @@ final class PanelController {
         container.fitHostedViewWidth()
     }
 
+    /// Resizes the visible panel on its current display as the Card Size slider moves.
+    func resizeForCardSize() {
+        guard isVisible, !isHiding, let panel else { return }
+        // Preserve the bottom edge and width while the pointer is over Settings.
+        var frame = panel.frame
+        frame.size.height = PanelCardSize.currentHeight
+        panel.setFrame(frame, display: true)
+        refitContent()
+    }
+
     func restoreKeyboardNavigationFocus(activateApp: Bool = false) {
         guard isVisible, let panel else { return }
         if activateApp {
@@ -258,7 +242,24 @@ final class PanelController {
 
     /// - Parameter completion: Runs after the panel has left the screen.
     func hidePanel(then completion: (@MainActor @Sendable () -> Void)? = nil) {
+        if isHiding {
+            // Already on its way out: keep the work for when it has left, and
+            // drop a reopen asked for during the slide.
+            if let completion { hideCompletions.append(completion) }
+            reopenAfterHiding = nil
+            return
+        }
         guard isVisible, let panel else { return }
+        isHiding = true
+        if let completion { hideCompletions.append(completion) }
+        // A menu opened from the panel keeps tracking after the panel leaves the
+        // screen: the … menu stays up and Esc no longer reaches it, and a context
+        // menu that Esc closed still tracks until the next click. KeyboardShortcuts
+        // unregisters the global shortcuts while any menu tracks, so the hotkey did
+        // nothing until the user clicked somewhere.
+        for menu in trackingMenus.allObjects {
+            menu.cancelTrackingWithoutAnimation()
+        }
         #if APPSTORE
         ClipSync.shared.stopLivePolling()
         #endif
@@ -279,7 +280,7 @@ final class PanelController {
             self?.contentHost?.frame.origin.y = 0
             self?.presentedScreen = nil
             self?.isVisible = false
-            completion?()
+            self?.finishHiding()
         }
 
         guard Self.animatesPanel else {
@@ -298,6 +299,46 @@ final class PanelController {
                 finish()
             }
         })
+    }
+
+    private func finishHiding() {
+        isHiding = false
+        let completions = hideCompletions
+        hideCompletions = []
+        for completion in completions {
+            completion()
+        }
+        if let reopen = reopenAfterHiding {
+            reopenAfterHiding = nil
+            reopen()
+        }
+    }
+
+    private func observeMenuTracking() {
+        guard menuObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        menuObservers = [
+            center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] note in
+                // AppKit posts these on the main thread while the menu tracks.
+                guard Thread.isMainThread else { return }
+                let ref = MenuRef(menu: note.object as? NSMenu)
+                MainActor.assumeIsolated {
+                    if let menu = ref.menu { self?.trackingMenus.add(menu) }
+                }
+            },
+            center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [weak self] note in
+                guard Thread.isMainThread else { return }
+                let ref = MenuRef(menu: note.object as? NSMenu)
+                MainActor.assumeIsolated {
+                    if let menu = ref.menu { self?.trackingMenus.remove(menu) }
+                }
+            },
+        ]
+    }
+
+    /// Carries a menu from a notification block that runs on the main thread.
+    private struct MenuRef: @unchecked Sendable {
+        weak var menu: NSMenu?
     }
 
     // MARK: - Click Monitor (dismiss on outside click)
@@ -804,7 +845,7 @@ final class PanelController {
         appState.selectForPreview(nil)
         quickLookItem = item
 
-        let screen = self.panel?.screen ?? activeScreen
+        guard let screen = self.panel?.screen ?? activeScreen else { return }
         let screenFrame = screen.visibleFrame
 
         let panel: ClipboardQuickLookPanel
@@ -822,7 +863,6 @@ final class PanelController {
         panel.contentView = NSHostingView(
             rootView: ClipboardQuickLookView(
                 item: item,
-                shelfHeight: baseHeight,
                 zoom: zoom,
                 onClose: { [weak self] in
                     self?.hideQuickLook()
@@ -880,26 +920,6 @@ final class PanelController {
         }
     }
 
-    private func visibleItemCount(modelContainer: ModelContainer, selectedTab: PanelTab) -> Int {
-        let context = modelContainer.mainContext
-
-        switch selectedTab {
-        case .history:
-            let descriptor = FetchDescriptor<ClipboardItem>()
-            return (try? context.fetchCount(descriptor)) ?? 0
-
-        case .pinboard(let pinboardId):
-            var descriptor = FetchDescriptor<Pinboard>(
-                predicate: #Predicate { pinboard in
-                    pinboard.id == pinboardId
-                }
-            )
-            descriptor.fetchLimit = 1
-            guard let pinboard = try? context.fetch(descriptor).first else { return 0 }
-            return pinboard.entries.filter { !$0.isDeleted && $0.clipboardItem != nil }.count
-        }
-    }
-
     /// Wraps the SwiftUI content in a plain container so it can be offset
     /// inside the panel. Anything pushed outside the panel frame is clipped by
     /// the window surface, which is what makes the slide read as a reveal.
@@ -926,26 +946,30 @@ final class PanelController {
         return container
     }
 
-    private func panelFrame(in screenFrame: NSRect, itemCount: Int, y: CGFloat) -> NSRect {
-        let panelWidth = targetPanelWidth(for: itemCount, screenWidth: screenFrame.width)
+    private func panelFrame(in screenFrame: NSRect, y: CGFloat) -> NSRect {
+        let panelWidth = targetPanelWidth(screenWidth: screenFrame.width)
         let panelX = screenFrame.midX - panelWidth / 2
 
         return NSRect(
             x: panelX,
             y: y,
             width: panelWidth,
-            height: baseHeight
+            height: PanelCardSize.currentHeight
         )
     }
 
-    private func targetPanelWidth(for itemCount: Int, screenWidth: CGFloat) -> CGFloat {
+    /// The panel keeps one width no matter how many clips the current tab
+    /// holds. Sizing it to the card count made it shrink and grow while
+    /// switching between history and a small pinboard, and the centered tab
+    /// bar moved with it.
+    private func targetPanelWidth(screenWidth: CGFloat) -> CGFloat {
         let screenMaxWidth = max(360, screenWidth - 48)
         let maxWidth = min(screenMaxWidth, max(minimumPanelWidth, screenWidth * maximumScreenWidthRatio))
         let minWidth = min(minimumPanelWidth, maxWidth)
-        let visibleCardCount = min(max(itemCount, 1), maximumVisibleCardCount)
+        let visibleCardCount = maximumVisibleCardCount
         let cardContentWidth =
             CGFloat(visibleCardCount) * estimatedCardWidth +
-            CGFloat(max(visibleCardCount - 1, 0)) * estimatedCardSpacing +
+            CGFloat(visibleCardCount - 1) * estimatedCardSpacing +
             contentHorizontalPadding
 
         return min(max(minWidth, cardContentWidth), maxWidth)

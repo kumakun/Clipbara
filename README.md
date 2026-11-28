@@ -27,6 +27,8 @@
   <a href="https://apps.apple.com/app/apple-store/id6803537696?pt=129317403&amp;ct=github_readme&amp;mt=8"><strong>Get it on the Mac App Store</strong></a>
   &nbsp;·&nbsp;
   <a href="https://github.com/mobrava/Clipbara/releases/latest"><strong>Download the DMG</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://clipbara.app/"><strong>Official website</strong></a>
 </p>
 
 https://github.com/user-attachments/assets/60db2f4c-fbe4-41d0-9bda-416b791c5c46
@@ -59,7 +61,7 @@ Both are built from this repository. The App Store build is free to try for 7 da
 The two differ in a few features:
 
 - iCloud sync, and with it the iPhone app, is in the App Store build only.
-- Pasting into the active app and Clip Queue are in the DMG build only. Both need Accessibility permission, which Apple does not allow App Store apps to use for this.
+- Pasting into the active app is in the DMG build only. It needs Accessibility permission, which Apple does not allow App Store apps to use for this.
 
 The two use different bundle identifiers, so they keep separate histories. To carry your clips across, open **Settings > General > Backup > Export** in one build and **Import** in the other. Existing clips are kept and duplicates are skipped.
 
@@ -75,7 +77,7 @@ Run only one of them. Two copies register `⌘ ⇧ V` twice and open two panels.
 4. Click a clip once, or press <kbd>Return</kbd>. The clip goes to your clipboard and the panel closes.
 5. Press <kbd>⌘</kbd> <kbd>V</kbd> in the app you were using.
 
-In the DMG build you can skip step 5: turn on **Settings > General > Paste into the Active App**. See the [FAQ](#why-doesnt-clipbara-paste-into-the-app-for-me) for the permission it needs.
+In the DMG build you can skip step 5: turn on **Settings > Pasting > Paste into the Active App**. See the [FAQ](#why-doesnt-clipbara-paste-into-the-app-for-me) for the permission it needs.
 
 Inside the panel:
 
@@ -109,12 +111,12 @@ Both global shortcuts and the Quick Look key can be changed in **Settings > Shor
 - Quick Look preview without leaving the panel, and text editing inside it
 - Paste as plain text, always or per paste
 - Optional pasting into the active app (DMG build)
-- Clip Queue: copy several things, then paste them back in order with <kbd>⌘</kbd> <kbd>V</kbd> (DMG build)
-- `clipbara://open` and `clipbara://toggle` links (and `clipbara://queue` in the DMG build) for launchers such as Raycast, Alfred, or Shortcuts
+- Clip Queue: copy several things, then paste them back in order with <kbd>⌘</kbd> <kbd>V</kbd>
+- `clipbara://open`, `clipbara://toggle`, and `clipbara://queue` links for launchers such as Raycast, Alfred, or Shortcuts
 - A hideable menu bar icon, and a panel that can open without animation
 - English, Korean, and Simplified Chinese
 - Excluded apps, so a password manager never reaches the history
-- History limit, appearance, and launch at login
+- History limit by count or age, appearance, and launch at login
 - JSON export and import for moving between machines or builds
 
 ## Screenshots
@@ -135,15 +137,15 @@ History is stored on your Mac with SwiftData. It leaves the Mac only if you turn
 
 Everything except sync works offline. The DMG build reaches the network for one thing, Sparkle update checks, and the App Store build ships without an updater.
 
-Add a password manager, or any other app, under **Settings > Exclusions** and nothing copied from it is recorded.
+Add a password manager, or any other app, under **Settings > Privacy > Excluded Apps** and nothing copied from it is recorded.
 
-The DMG build needs Accessibility permission only if you turn on pasting into the active app or use Clip Queue. Both need it to press or notice <kbd>⌘</kbd> <kbd>V</kbd> in other apps, and nothing else uses it.
+The DMG build needs Accessibility permission only if you turn on pasting into the active app, which presses <kbd>⌘</kbd> <kbd>V</kbd> in other apps. Nothing else uses it. Clip Queue needs no permission: it notices a paste when the other app reads the clipboard.
 
 ## FAQ
 
 ### Why doesn't Clipbara paste into the app for me?
 
-By default, picking a clip puts it on the clipboard and closes the panel, and you press <kbd>⌘</kbd> <kbd>V</kbd> yourself. In the DMG build, turn on **Settings > General > Paste into the Active App** and Clipbara presses <kbd>⌘</kbd> <kbd>V</kbd> for you. That needs Accessibility permission in **System Settings > Privacy & Security > Accessibility**, and Settings shows whether it is on.
+By default, picking a clip puts it on the clipboard and closes the panel, and you press <kbd>⌘</kbd> <kbd>V</kbd> yourself. In the DMG build, turn on **Settings > Pasting > Paste into the Active App** and Clipbara presses <kbd>⌘</kbd> <kbd>V</kbd> for you. That needs Accessibility permission in **System Settings > Privacy & Security > Accessibility**, and Settings shows whether it is on.
 
 The App Store build doesn't have this option. Pressing a key in another app needs Accessibility permission, and App Review does not allow App Store apps to use it for anything other than accessibility.
 

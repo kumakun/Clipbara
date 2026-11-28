@@ -15,7 +15,10 @@ enum AppTheme: String, CaseIterable {
     }
 }
 
+@MainActor
 struct AppearanceSettingsTab: View {
+    @AppStorage(PanelCardSize.defaultsKey) private var panelHeight = PanelCardSize.defaultHeight
+    @AppStorage(PanelScreen.defaultsKey) private var panelScreen = PanelScreen.pointer
     @AppStorage("appTheme") private var appTheme: String = AppTheme.system.rawValue
     @AppStorage(PanelController.animatesPanelDefaultsKey) private var animatesPanel: Bool = true
     @State private var reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -32,25 +35,40 @@ struct AppearanceSettingsTab: View {
                 applyTheme(newValue)
             }
 
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Animate Panel")
-                    Group {
-                        if reducesMotion {
-                            Text("Off while Reduce Motion is on in System Settings > Accessibility > Display.")
-                        } else {
-                            Text("Slide the history panel in and out. When off, it appears and closes at once.")
-                        }
+            LabeledContent("Card Size") {
+                // Use the same validated height for the slider, its label, and the panel.
+                let height = Binding(get: { PanelCardSize.clampedHeight(panelHeight) }, set: { panelHeight = $0 })
+                // Use a localized percentage for both the visible and spoken value.
+                let scale = (height.wrappedValue / PanelCardSize.defaultHeight)
+                    .formatted(.percent.precision(.fractionLength(0)))
+                HStack {
+                    Slider(value: height, in: PanelCardSize.range, step: PanelCardSize.step) {
+                        Text("Card Size")
                     }
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Toggle("", isOn: $animatesPanel)
                     .labelsHidden()
-                    .disabled(reducesMotion)
+                    .accessibilityValue(scale)
+
+                    Text(verbatim: scale)
+                        .monospacedDigit()
+                }
             }
+
+            Picker("Show Panel On", selection: $panelScreen) {
+                ForEach(PanelScreen.allCases, id: \.self) { screen in
+                    Text(screen.displayName).tag(screen)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Toggle(isOn: $animatesPanel) {
+                Text("Animate Panel")
+                if reducesMotion {
+                    Text("Off while Reduce Motion is on in System Settings > Accessibility > Display.")
+                } else {
+                    Text("Slide the history panel in and out. When off, it appears and closes at once.")
+                }
+            }
+            .disabled(reducesMotion)
             .onReceive(NSWorkspace.shared.notificationCenter.publisher(
                 for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification
             )) { _ in
@@ -58,7 +76,6 @@ struct AppearanceSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
         .onAppear {
             applyTheme(appTheme)
         }
