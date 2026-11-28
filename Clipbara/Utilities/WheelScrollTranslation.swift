@@ -33,7 +33,7 @@ enum WheelScrollTranslation {
     ///
     /// A swipe is never perfectly straight. Deciding per event would let a
     /// mostly vertical swipe flip to horizontal and back as the dominant axis
-    /// changes, so the choice made when the gesture starts is kept until it
+    /// changes, so the choice made at the first movement is kept until it
     /// finishes, momentum included.
     struct Translator {
         private var latched: Bool?
@@ -52,15 +52,18 @@ enum WheelScrollTranslation {
             switch input.phase {
             case .none:
                 // A wheel notch stands on its own.
+                latched = nil
                 return isVertical(input)
 
             case .began:
-                let decision = isVertical(input)
-                latched = decision
-                return decision
+                latched = nil
+                fallthrough
 
             case .changed, .momentum:
                 if let latched { return latched }
+                // A touch surface or smooth-scrolling driver can begin with
+                // no movement. Wait for a direction before locking the axis.
+                guard input.deltaX != 0 || input.deltaY != 0 else { return false }
                 let decision = isVertical(input)
                 latched = decision
                 return decision
@@ -83,25 +86,18 @@ enum WheelScrollTranslation {
         abs(input.deltaY) > abs(input.deltaX) && input.deltaY != 0
     }
 
-    /// Copies a scroll event with its vertical movement moved onto the
-    /// horizontal axis. Handing the copy back to AppKit keeps its own line
-    /// height, acceleration, and edge clamping instead of reimplementing them.
-    /// Axis 1 is vertical and axis 2 is horizontal in `CGEvent` scroll fields.
-    static func horizontalCopy(of event: NSEvent) -> NSEvent? {
-        guard let copy = event.cgEvent?.copy() else { return nil }
-
-        let lines = copy.getDoubleValueField(.scrollWheelEventDeltaAxis1)
-        let points = copy.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
-        let fixed = copy.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
-
-        copy.setDoubleValueField(.scrollWheelEventDeltaAxis2, value: lines)
-        copy.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: points)
-        copy.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: fixed)
-        copy.setDoubleValueField(.scrollWheelEventDeltaAxis1, value: 0)
-        copy.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
-        copy.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
-
-        return NSEvent(cgEvent: copy)
+    /// Apply the device's movement to the clip view directly. SwiftUI's
+    /// HostingScrollView can ignore a copied, axis-swapped smooth-scroll event
+    /// even when it reports the expected horizontal delta.
+    @MainActor
+    static func scrollHorizontally(with event: NSEvent, in scrollView: NSScrollView) {
+        let clipView = scrollView.contentView
+        let unit: CGFloat = event.hasPreciseScrollingDeltas ? 1 : scrollView.horizontalLineScroll
+        var proposed = clipView.bounds
+        proposed.origin.x -= event.scrollingDeltaY * unit / scrollView.magnification
+        let constrained = clipView.constrainBoundsRect(proposed)
+        clipView.scroll(to: NSPoint(x: constrained.minX, y: clipView.bounds.minY))
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     static func phase(of event: NSEvent) -> Phase {

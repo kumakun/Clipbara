@@ -5,10 +5,10 @@
 - Scrolling vertically over the card row, a pinboard row, or the tab strip moves it sideways.
 - A scroll that is already sideways is left alone, so Shift + wheel, a thumb wheel, and trackpad sideways gestures behave exactly as they do today.
 - A view that also scrolls vertically, such as a Quick Look image at actual size, keeps the normal meaning of the scroll.
-- The direction follows the system setting, since the swapped event carries the same values the device reported.
+- The direction follows the system setting, using the movement reported by the device.
 - No change to selection, paste, or the keyboard shortcuts.
 
-The event's vertical movement is moved onto the horizontal axis and handed back to AppKit, so line height, acceleration, and edge clamping stay native rather than being reimplemented.
+The event's vertical movement is applied directly to the scroll view's horizontal offset. Precise events use point distances; ordinary wheel notches use the scroll view's horizontal line distance. AppKit constrains the offset to the document bounds. Copying the event and calling `HostingScrollView.scrollWheel(with:)` was observed to leave the offset at zero for real smooth-scroll input, even when the copied horizontal delta was correct.
 
 The choice is made from the direction of the scroll, not from the kind of device. A mouse reports the same fine deltas a trackpad does once its vendor software turns on smooth scrolling, so treating precise deltas as "this is a trackpad, leave it alone" would skip exactly the mice this is meant to fix. Within one continuous gesture the first decision is kept until the gesture and its momentum finish, so a swipe that drifts off axis cannot flip between sideways and vertical frame by frame.
 
@@ -22,7 +22,9 @@ Covered by unit tests:
 
 - which scrolls get translated: a wheel notch, a high resolution vertical scroll, an already sideways scroll, both-axis views, and rows that do not scroll sideways
 - one decision per gesture: a wobbly vertical swipe does not flip, a sideways swipe stays native for its whole run, momentum inherits the decision, a new gesture decides again, and leaving the row clears it
-- the axis swap itself: vertical movement lands on the horizontal axis, the direction is preserved, and the copy stays a scroll event
+- zero-movement gesture beginnings wait for the first movement before choosing an axis; a new gesture or wheel notch clears the previous decision
+- actual scroll offsets: down/up wheel notches move in opposite directions, line distance and precise point distances are respected, the vertical offset stays unchanged, and both ends clamp to the document
+- a real SwiftUI horizontal scroll view moves after a zero-delta gesture beginning and continues during a synthetic momentum event
 
 Not covered by unit tests: delivery of a real device event, the scroll view lookup under the pointer, and how the scrolling feels.
 
@@ -38,6 +40,9 @@ Not covered by unit tests: delivery of a real device event, the scroll view look
 
 ## Verification status
 
+- 2026-11-28: real-device diagnostics reproduced the failure: the card row received smooth vertical input and correctly converted horizontal deltas, but its offset remained at zero. Replaced copied-event delivery with direct horizontal scrolling.
+- 2026-11-28: all 119 unhosted unit tests passed, including actual offset checks and a SwiftUI gesture/momentum regression. The macOS Debug app built successfully. The local build was launched with sandboxing disabled to match the installed app's existing data directory.
+- 2026-11-28: the user confirmed that up/down mouse-wheel scrolling now moves the actual card row sideways. Temporary diagnostics also recorded changing horizontal offsets in that row.
 - 2026-09-11: `scripts/test-and-launch.sh` passed end to end. 26 unit tests, 0 failures, Debug build succeeded.
 - 2026-09-11: scrolling the card row with an MX Master 3S was checked by hand and moved the row sideways.
 - Not yet covered: the tab strip and pinboard rows, Quick Look at actual size, trackpad momentum, and the vendor smooth scrolling setting in both positions.

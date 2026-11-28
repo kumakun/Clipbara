@@ -409,14 +409,18 @@ final class PanelController {
             NSEvent.removeMonitor(monitor)
             scrollMonitor = nil
         }
+        wheelTranslator = WheelScrollTranslation.Translator()
     }
 
-    /// Re-sends a mouse wheel as horizontal movement over a sideways card row.
+    /// Applies vertical wheel movement to the horizontal offset of a sideways row.
     private func translateWheelToHorizontalScroll(_ event: NSEvent) -> Bool {
         guard isVisible,
               let window = event.window,
               window === panel || window === quickLookPanel,
-              let scrollView = horizontalScrollView(under: event, in: window) else { return false }
+              let scrollView = horizontalScrollView(under: event, in: window) else {
+            wheelTranslator = WheelScrollTranslation.Translator()
+            return false
+        }
 
         // Cmd/Option + wheel zooms a Quick Look image; leave it to the image view.
         if scrollView is ZoomingImageScrollView,
@@ -435,8 +439,7 @@ final class PanelController {
         )
         guard wheelTranslator.shouldTranslate(input) else { return false }
 
-        guard let horizontalEvent = WheelScrollTranslation.horizontalCopy(of: event) else { return false }
-        scrollView.scrollWheel(with: horizontalEvent)
+        WheelScrollTranslation.scrollHorizontally(with: event, in: scrollView)
         return true
     }
 
